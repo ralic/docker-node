@@ -14,15 +14,27 @@ for version in "${versions[@]}"; do
 		continue
 	fi
 
-	fullVersion="$(curl -sSL --compressed 'https://nodejs.org/dist' | grep '<a href="v'"$version." | sed -E 's!.*<a href="v([^"/]+)/?".*!\1!' | cut -f 3 -d . | sort -n | tail -1)"
-	(
-		sed -E -i.bak '
-			s/^(ENV NODE_VERSION) .*/\1 '"$version.$fullVersion"'/;
-		' "$version/Dockerfile" "$version/slim/Dockerfile" "$version/wheezy/Dockerfile"
-		rm $version/Dockerfile.bak $version/slim/Dockerfile.bak $version/wheezy/Dockerfile.bak
+	for variant in default onbuild slim wheezy; do
+		template="Dockerfile-$variant.template"
+		dockerfile="$version/$variant/Dockerfile"
 
-		sed -E -i.bak 's/^(FROM node):.*/\1:'"$version.$fullVersion"'/' "$version/onbuild/Dockerfile"
-		rm $version/onbuild/Dockerfile.bak
+		if [[ "$variant" == "default" ]]; then
+			template="Dockerfile.template"
+			dockerfile="$version/Dockerfile"
+		fi
 
-	)
+		fullVersion="$(curl -sSL --compressed 'https://nodejs.org/dist' | grep '<a href="v'"$version." | sed -E 's!.*<a href="v([^"/]+)/?".*!\1!' | cut -f 3 -d . | sort -n | tail -1)"
+		(
+			cp $template $dockerfile
+			sed -E -i.bak 's/^(ENV NODE_VERSION |FROM node:).*/\1'"$version.$fullVersion"'/' "$dockerfile"
+			rm "$dockerfile.bak"
+			
+			# Don't set npm log level in 0.10 and 0.12.
+			if [[ "$version" == "0.10" || "$version" == "0.12" ]]; then
+				sed -E -i.bak '/^ENV NPM_CONFIG_LOGLEVEL info/d' "$dockerfile"
+				rm "$dockerfile.bak"
+			fi
+
+		)
+	done
 done
